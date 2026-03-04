@@ -1,7 +1,10 @@
 #importaciones
-from fastapi import FastAPI, status, HTTPException
+from fastapi import FastAPI, status, HTTPException,Depends
 import asyncio
 from typing import Optional
+from pydantic import BaseModel,Field
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import secrets
 
 #******************
 #Instancia del servidor
@@ -24,6 +27,33 @@ usuarios=[
     {"id":3,"nombre":"Saul","edad":21},
 ]
 
+#******************
+#Modelo Pydantic de validacion
+#******************
+
+class crear_usuario(BaseModel):
+    id: int= Field(...,gt=0,description= "identificador de usuario")
+    nombre:str= Field(...,min_length= 3, max_length= 50, example="Juanito Doe")
+    edad:int = Field(..., ge=1, le=125,description="Edad validad entre 1 y 125" )   
+
+
+#******************
+#Seguridad con HTTP BASIC
+#******************
+
+security= HTTPBasic()
+
+def verificar_peticion(credenciales:HTTPBasicCredentials=Depends(security)):
+    usuarioAut= secrets.compare_digest(credenciales.username,"ivanisay")
+    contraAuth= secrets.compare_digest(credenciales.password,"123456")
+    
+    if not(usuarioAut and contraAuth):
+        raise HTTPException(
+            status_code= status.HTTP_401_UNAUTHORIZED,
+            detail=" Credenciales no autorizadas"
+        )
+        
+    return credenciales.username  
 
 
 #******************
@@ -39,9 +69,9 @@ async def leer_usuarios( ):
     }
     
 @app.post("/v1/usuarios/",tags=['CRUD HTTP'] ,status_code=status.HTTP_201_CREATED)
-async def crear_usuario(usuario:dict):
+async def crear_usuario(usuario:crear_usuario):
     for usr in usuarios:
-        if usr["id"] == usuario.get("id"):
+        if usr["id"] == usuario.id:
             raise HTTPException(
                 status_code=400,
                 detail="El id ya existe"
@@ -92,7 +122,7 @@ async def actualizar_parcial(id: int, datos: dict):
     )
     
 @app.delete("/v1/usuarios/{id}", tags=["CRUD HTTP"],status_code=status.HTTP_200_OK)
-async def eliminar_usuario(id: int):
+async def eliminar_usuario(id: int,usuarioAuth:str=Depends(verificar_peticion)):
 
     for index, usr in enumerate(usuarios):
         if usr["id"] == id:
@@ -100,7 +130,7 @@ async def eliminar_usuario(id: int):
             usuarios.pop(index)
 
             return {
-                "message": "Usuario eliminado correctamente"
+                "message": f"Usuario eliminado por {usuarioAuth}"
             }
 
     raise HTTPException(
